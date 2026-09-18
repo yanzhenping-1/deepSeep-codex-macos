@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 output=""
-write_code=""
+write_format=""
 url=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -10,14 +11,8 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     -w)
-      write_code="$2"
+      write_format="$2"
       shift 2
-      ;;
-    -H|-d|--proto|--connect-timeout|--max-time)
-      shift 2
-      ;;
-    -fL|-sS|--tlsv1.2)
-      shift
       ;;
     http://*|https://*)
       url="$1"
@@ -29,12 +24,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -n "$output" ]; then
-  case "$url" in
-    *cdn.deepseek.com*) cp "${FAKE_VENDOR_SCRIPT:?}" "$output" ;;
-    *) printf '{"id":"resp_test","status":"completed"}\n' > "$output" ;;
-  esac
-fi
-if [ -n "$write_code" ]; then
-  printf '200'
-fi
+case "$url" in
+  */responses)
+    [ -n "$output" ] && printf '{"id":"resp_test","status":"completed"}\n' > "$output"
+    [ -n "$write_format" ] && printf '200'
+    ;;
+  *)
+    [ -n "${FAKE_VENDOR_SCRIPT:-}" ] || { printf 'FAKE_VENDOR_SCRIPT is required\n' >&2; exit 2; }
+    [ -n "$output" ] || { printf 'fake curl requires -o for fixture download\n' >&2; exit 2; }
+    cp "$FAKE_VENDOR_SCRIPT" "$output"
+    ;;
+esac
