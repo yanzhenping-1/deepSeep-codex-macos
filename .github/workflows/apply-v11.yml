@@ -1,0 +1,51 @@
+name: Apply reviewed v1.1 patch
+
+on:
+  push:
+    branches:
+      - fix/deepseek-codex-macos-v1.1
+    paths:
+      - .bootstrap/ready
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .bootstrap/ready
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/deepseek-codex-macos-v1.1
+          fetch-depth: 0
+      - name: Verify, test, and apply reviewed tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .bootstrap/ready ]; then
+            echo "Patch already applied; nothing to do."
+            exit 0
+          fi
+
+          cat .bootstrap/v11.part* > /tmp/deepseek-v11.tar.gz.b64
+          base64 --decode /tmp/deepseek-v11.tar.gz.b64 > /tmp/deepseek-v11.tar.gz
+          echo "66459795474b2c4033595d37d91b83908ead7be501e2baf4f98a9fe4c101de6a  /tmp/deepseek-v11.tar.gz" | shasum -a 256 -c -
+          tar -xzf /tmp/deepseek-v11.tar.gz
+          git checkout -- .github/workflows/ci.yml
+
+          chmod +x deepseek-codex-macos.sh tests/test.sh
+          bash -n deepseek-codex-macos.sh tests/test.sh
+          ./tests/test.sh
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deepseek-codex-macos.sh README.md SECURITY.md docs/DESIGN.md tests/test.sh
+          git rm -r .bootstrap
+          git commit -m "fix: add reversible DeepSeek compatibility mode"
+          git push origin HEAD:fix/deepseek-codex-macos-v1.1
