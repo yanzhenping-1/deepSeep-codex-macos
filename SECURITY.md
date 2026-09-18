@@ -18,8 +18,9 @@
 - 仓库
 - profile
 - wrapper
-- 命令行参数
 - shell 历史
+
+安装脚本调用 macOS `security add-generic-password` 写入 Keychain。与其他本机命令一样，拥有同一用户会话调试权限的恶意进程仍可能构成本地威胁；本项目不能替代安全的 macOS 账户和终端环境。
 
 ## 桌面端风险
 
