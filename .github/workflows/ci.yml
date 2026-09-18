@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,6 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
