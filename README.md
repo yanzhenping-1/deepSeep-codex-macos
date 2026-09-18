@@ -1,40 +1,34 @@
 # DeepSeek × Codex for macOS
 
-在同一台 Mac 上并存以下三种启动方式：
+在 macOS 上同时保留 **OpenAI Codex、DeepSeek Flash、DeepSeek V4 Pro** 三套使用方式，并尽量不破坏现有配置和聊天记录。
 
-- 现有 Codex / ChatGPT 默认配置
-- DeepSeek Flash（当前模型名：`deepseek-flash`）
-- DeepSeek V4 Pro（`deepseek-v4-pro`）
+> 当前 GitHub 仓库名是 `deepSeep-codex-macos`，其中 `Seep` 是拼写错误；项目中的脚本、目录和文档均使用正确的 `DeepSeek`。
 
-> 仓库当前名称是 `deepSeep-codex-macos`，其中 `Seep` 是拼写错误；代码与文档统一使用正确的 `DeepSeek`。
+## 方案结论
 
-## 审查结论
+推荐把 CLI 与桌面端分开处理：
 
-合理的方案应区分 **Codex CLI** 与 **Codex / ChatGPT 桌面端**：
-
-| 场景 | 方案 | 是否改动 `~/.codex/config.toml` | API Key |
+| 场景 | 方案 | 是否改动 `~/.codex/config.toml` | API Key 保存位置 |
 |---|---|---:|---|
-| CLI 日常开发 | Codex 独立 profile | 否 | macOS Keychain |
-| 桌面端切换 | DeepSeek 官方配置器 | 是，官方脚本负责备份/恢复 | 官方配置器管理 |
+| Codex CLI 日常开发 | 独立 profile | 否 | macOS Keychain |
+| Codex / ChatGPT 桌面端 | DeepSeek 官方配置器 | 是，官方脚本负责备份/恢复 | 官方脚本当前会写入本机配置文件 |
 
-本项目默认采用 CLI profile。它不部署协议转换代理，不修改应用包、代码签名、聊天数据库或会话文件，也不对 DeepSeek 官方模型目录做未经验证的“兼容补丁”。
-
-DeepSeek 已原生支持 Codex 所需的 Responses API；当前官方 Codex 配置使用 `deepseek-flash` 与 `deepseek-v4-pro`。Flash 支持图片输入。
+DeepSeek 已原生提供 Codex 所需的 Responses API，因此本项目不部署 Chat Completions → Responses 转换代理，也不修改 Codex `.app`、代码签名、`state_*.sqlite` 或聊天记录。
 
 ## 环境要求
 
 - macOS
 - Codex CLI `0.144.0` 或更高版本
+- `curl`、`perl`、`awk`、`sed`、`shasum` 和 macOS `security`
 - DeepSeek API Key
-- 系统自带的 `security`、`curl`、`shasum`、`awk`、`sed`
 
-检查 Codex 版本：
+查看 Codex 版本：
 
 ```bash
 codex --version
 ```
 
-## 安装
+## 推荐安装：CLI 三套配置并存
 
 ```bash
 git clone https://github.com/yanzhenping-1/deepSeep-codex-macos.git
@@ -42,7 +36,7 @@ cd deepSeep-codex-macos
 ./deepseek-codex-macos.sh install
 ```
 
-安装时会隐藏输入 DeepSeek API Key，并保存到 macOS Keychain。随后可运行：
+安装过程会隐藏输入 DeepSeek API Key，并保存到 macOS Keychain。安装完成后：
 
 ```bash
 codex-openai
@@ -50,7 +44,7 @@ codex-deepseek-flash
 codex-deepseek-pro
 ```
 
-也可以直接调用项目脚本：
+也可以直接使用脚本：
 
 ```bash
 ./deepseek-codex-macos.sh run openai
@@ -58,9 +52,7 @@ codex-deepseek-pro
 ./deepseek-codex-macos.sh run pro
 ```
 
-`codex-openai` 不复制或改写 OpenAI 凭据；它直接启动你原来的默认 Codex 配置。如果你此前运行过桌面端 DeepSeek 配置器并切换了全局配置，应先在官方菜单中选择恢复默认配置。
-
-如果 `~/.local/bin` 尚未加入 PATH，把以下内容加入 `~/.zshrc`：
+如果 `~/.local/bin` 不在 PATH，加入 `~/.zshrc`：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -68,87 +60,103 @@ export PATH="$HOME/.local/bin:$PATH"
 
 然后重新打开终端。
 
-## 安装内容
-
-CLI 安装只创建或管理以下文件：
+### CLI 安装写入的文件
 
 ```text
 ~/.codex/deepseek-flash.config.toml
 ~/.codex/deepseek-pro.config.toml
-~/.codex/deepseek-codex-macos/models.json
+~/.codex/deepseek-codex-macos/models.vendor.json
+~/.codex/deepseek-codex-macos/models.compat.json
 ~/.codex/deepseek-codex-macos/vendor-script.sha256
+~/.local/bin/deepseek-codex-token
 ~/.local/bin/codex-openai
 ~/.local/bin/codex-deepseek-flash
 ~/.local/bin/codex-deepseek-pro
 ```
 
-不会修改：
+CLI 安装不会修改：
 
 ```text
 ~/.codex/config.toml
-~/.codex/auth.json
 ~/.codex/state_*.sqlite
 ~/.codex/sessions/
 ```
 
-Codex 运行 DeepSeek profile 时，会通过 command-backed authentication 调用 macOS `security` 命令，从 Keychain 读取 Bearer Token；API Key 不写入 profile 或 wrapper。
+profile 通过 Codex 的 command-backed auth 在运行时调用本地 helper，从 macOS Keychain 读取 Bearer Token；TOML 和 wrapper 中均没有明文密钥。
 
-模型目录来自 DeepSeek 官方一键配置脚本。安装流程只下载、校验并提取其中的 `models.json`，不会执行远程脚本。脚本 SHA-256 会记录到：
+wrapper 会在启动前检查 profile 是否存在、供应商和模型是否匹配，避免 profile 丢失时 Codex 静默回退到主配置并误用另一套额度。
 
-```text
-~/.codex/deepseek-codex-macos/vendor-script.sha256
-```
+> DeepSeek profile 内不建议用 `/model` 切换到 OpenAI 模型。需要切换供应商时，退出后运行对应的三个命令之一。
 
-## 更新官方模型目录
+## 模型目录与兼容修复
 
-DeepSeek 模型信息变化后可执行：
+安装时会：
+
+1. 从 DeepSeek 官方 CDN 下载当前 Codex 配置脚本到临时目录。
+2. 校验 DeepSeek API、Responses API、模型标识和模型目录标记。
+3. 记录下载脚本的 SHA-256。
+4. 只提取官方 `models.json`；CLI 安装阶段不会执行远程脚本。
+5. 保存官方原始目录和一份兼容目录。
+
+兼容目录当前应用两项上游规避措施：
+
+- `multi_agent_version: "v2"` → `"v1"`：避免非 OpenAI Responses 供应商的子代理收到空任务。
+- `supports_search_tool: true` → `false`：避免 MCP 工具被标记为 deferred，却没有可用的 `tool_search`。
+
+官方原始目录始终保留，便于审计和在上游修复后移除补丁。
+
+手动修复任意目录：
 
 ```bash
-./deepseek-codex-macos.sh refresh-catalog
+./deepseek-codex-macos.sh repair-catalog ~/.codex/models.json
 ```
 
-该命令重新下载官方配置脚本、校验关键标记、提取模型目录并记录 SHA-256；不会修改 API Key 或主配置。
+脚本会先创建带时间戳的备份。
 
-## 桌面端切换
+## Mac 桌面端
 
 ```bash
 ./deepseek-codex-macos.sh desktop
 ```
 
-此命令会：
+该命令会先下载、验证并显示 DeepSeek 官方配置器的 SHA-256，然后执行本机临时文件。官方交互菜单可切换：
 
-1. 把 DeepSeek 官方配置器下载到临时目录。
-2. 校验 API 地址、Responses API、模型标识与模型目录标记。
-3. 显示 SHA-256。
-4. 在本机执行官方交互式配置器。
+- DeepSeek Flash（当前 `deepseek-flash`，支持图片输入）
+- DeepSeek V4 Pro
+- 恢复安装前的 OpenAI Codex 配置
 
-官方菜单可选择 DeepSeek Flash、DeepSeek V4 Pro，或恢复默认 Codex 配置。切换后需彻底退出并重新打开 Codex / ChatGPT 桌面应用。
+切换后必须彻底退出并重新打开 Codex / ChatGPT 桌面应用。
 
-### 桌面端边界
+### 桌面端限制
 
-Codex Desktop 的第三方 provider 体验仍不等同于 CLI profile：自定义模型可能不会像内置 OpenAI 模型一样完整出现在模型选择器中；全局模型目录切换也可能影响当前会话分组。因此，本项目把 CLI profile 作为主方案，把官方配置器作为明确知晓影响后的桌面兼容方案。
+Codex Desktop 当前仍没有完整的 provider-aware 模型切换体验：
 
-官方配置器会改动共享的 `~/.codex/config.toml`，并可能把 API Key 写入该本机文件。不要提交、截图或分享该文件；脚本结束后本项目会尽量把权限收紧为 `600`。
+1. 自定义供应商可能显示为 `Custom`、供应商名或不完整模型名。
+2. ChatGPT 登录会话与第三方 API Key 会话可能分组显示；“聊天消失”通常是当前认证/供应商分组不同。
+3. `model_catalog_json` 是整份目录替换，不是追加，不能安全地在同一模型下拉框内混合全部 OpenAI 与 DeepSeek 模型。
+4. DeepSeek 官方配置器当前可能把 API Key 明文写入 `~/.codex/config.toml`，文件权限应保持 `600`，不得提交到 Git 或截图分享。
+
+因此，CLI profile 是推荐主方案；桌面端切换只作为明确了解这些边界时的兼容方案。
 
 ## 自检
 
-只检查本机配置，不产生 API 调用：
+只检查本机配置，不调用付费 API：
 
 ```bash
 ./deepseek-codex-macos.sh doctor
 ```
 
-额外执行一次极小的真实 Responses API 请求：
+增加一次极小的真实 Responses API 请求：
 
 ```bash
 ./deepseek-codex-macos.sh doctor --api
 ```
 
-`--api` 会产生少量 token 费用。
+`--api` 会产生极少量 token 费用。
 
 ## 卸载
 
-删除本项目管理的 CLI profile、wrapper 与模型目录，保留 Keychain 密钥：
+只移除本项目管理的 CLI 文件，保留 Keychain 密钥：
 
 ```bash
 ./deepseek-codex-macos.sh uninstall
@@ -160,27 +168,37 @@ Codex Desktop 的第三方 provider 体验仍不等同于 CLI profile：自定�
 ./deepseek-codex-macos.sh uninstall --purge-key
 ```
 
-卸载仅删除带项目管理标记的文件；无法识别的同名文件会保留。卸载不会擅自改写桌面端全局配置。
+卸载命令只删除带有项目管理标记的文件，并要求管理目录存在所有权 sentinel；无法识别的文件或目录会原样保留。
+
+全局桌面端配置不会被卸载命令擅自改写。需要恢复桌面端时，运行 `desktop` 并选择 DeepSeek 官方恢复选项。
 
 ## 命令一览
 
 ```text
-install                    安装 CLI profiles、Keychain 认证和启动命令
+install                    安装 CLI profiles、Keychain 认证和三个 wrapper
 run openai|flash|pro       按指定配置启动 Codex CLI
-refresh-catalog            刷新 DeepSeek 官方模型目录
-desktop                    运行 DeepSeek 官方桌面端配置器
-doctor [--api]             检查配置；--api 额外发起真实请求
+desktop                    下载并运行 DeepSeek 官方桌面端配置器
+repair-catalog [path]      备份并修复模型目录兼容项
+doctor [--api]             检查本机配置；--api 额外做真实请求
 uninstall [--purge-key]    卸载项目文件；可选删除 Keychain 密钥
-version                    显示项目版本
+version                    显示版本
 ```
+
+## 安全边界
+
+- DeepSeek 模式下，提示词、代码上下文和工具输入会发送到 DeepSeek 托管 API。
+- API Key 不写入仓库、wrapper、shell 参数或 CLI profile。
+- CLI 安装只解析 DeepSeek 官方脚本中的模型 JSON；不会执行下载脚本。
+- `desktop` 命令会执行官方配置器，因为桌面端需要其备份/恢复逻辑；运行前会做结构校验并显示 SHA-256。
+- 不使用第三方中转站，不修改应用签名，不直接编辑聊天数据库。
+
+详细设计见 [docs/DESIGN.md](docs/DESIGN.md)，安全说明见 [SECURITY.md](SECURITY.md)。
 
 ## 开发与测试
 
 ```bash
-bash -n deepseek-codex-macos.sh tests/test.sh tests/fixtures/*.sh
+bash -n deepseek-codex-macos.sh
 ./tests/test.sh
 ```
 
-测试使用临时 HOME、假 Keychain、假 Codex 和假下载器，不读取或修改真实的 `~/.codex`。
-
-设计取舍见 [docs/DESIGN.md](docs/DESIGN.md)，安全说明见 [SECURITY.md](SECURITY.md)。
+测试使用临时目录、假 Keychain、假 Codex 和假下载器，不读取或修改真实的 `~/.codex`。

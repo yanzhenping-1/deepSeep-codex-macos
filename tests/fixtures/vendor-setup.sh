@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-DEFAULT_BASE_URL="https://api.deepseek.com"
+# Minimal fixture shaped like the official DeepSeek Codex setup script.
+DEFAULT_BASE_URL="https://api.deepseek.com/"
 # wire_api = "responses"
-cat > /tmp/models.json <<'CODEX_MODELS_JSON'
+TMP_MODELS="/tmp/models.json"
+cat > "$TMP_MODELS" <<'CODEX_MODELS_JSON'
 {
   "models": [
     {
       "slug": "deepseek-flash",
-      "display_name": "DeepSeek V4.1 Flash",
-      "minimal_client_version": "0.144.0"
+      "display_name": "DeepSeek Flash",
+      "multi_agent_version": "v2",
+      "supports_search_tool": true
     },
     {
       "slug": "deepseek-v4-pro",
       "display_name": "DeepSeek V4 Pro",
-      "minimal_client_version": "0.144.0"
+      "multi_agent_version": "v2",
+      "supports_search_tool": true
     }
   ]
 }
