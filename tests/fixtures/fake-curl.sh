@@ -4,9 +4,17 @@ output=""
 write_code=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -o) output="$2"; shift 2 ;;
-    -w) write_code="$2"; shift 2 ;;
-    *) shift ;;
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    -w)
+      write_code="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
   esac
 done
 if [ -n "$output" ]; then
@@ -16,4 +24,6 @@ if [ -n "$output" ]; then
     printf '{"id":"resp_test","status":"completed"}\n' > "$output"
   fi
 fi
-[ -z "$write_code" ] || printf '200'
+if [ -n "$write_code" ]; then
+  printf '200'
+fi
