@@ -1,5 +1,6 @@
 name: CI
 
+# Run for every change and allow an explicit check from the Actions tab.
 on:
   push:
   pull_request:
