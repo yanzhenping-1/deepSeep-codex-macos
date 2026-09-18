@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 store="${FAKE_KEYCHAIN_FILE:?FAKE_KEYCHAIN_FILE is required}"
 action="${1:-}"
 shift || true
-
 case "$action" in
   add-generic-password)
     value=""
@@ -23,7 +21,7 @@ case "$action" in
     cat "$store"
     ;;
   delete-generic-password)
-    rm -f -- "$store"
+    rm -f "$store"
     ;;
   *)
     printf 'unsupported fake security action: %s\n' "$action" >&2
