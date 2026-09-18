@@ -62,11 +62,9 @@ compgen -G "$CODEX_HOME/deepseek-flash.config.toml.before-deepseek-codex-macos-*
 
 grep -Fqx 'model = "deepseek-flash"' "$CODEX_HOME/deepseek-flash.config.toml"
 grep -Fqx 'model_provider = "deepseek"' "$CODEX_HOME/deepseek-flash.config.toml"
-grep -Fqx 'preferred_auth_method = "apikey"' "$CODEX_HOME/deepseek-flash.config.toml"
-grep -Fqx 'forced_login_method = "api"' "$CODEX_HOME/deepseek-flash.config.toml"
-grep -Fqx 'web_search = "disabled"' "$CODEX_HOME/deepseek-flash.config.toml"
 grep -Fqx '[model_providers.deepseek.auth]' "$CODEX_HOME/deepseek-flash.config.toml"
 grep -Fqx 'model = "deepseek-v4-pro"' "$CODEX_HOME/deepseek-pro.config.toml"
+! grep -Eq '^(preferred_auth_method|forced_login_method)[[:space:]]*=' "$CODEX_HOME/deepseek-flash.config.toml"
 
 grep -q '"multi_agent_version": "v2"' "$CODEX_HOME/deepseek-codex-macos/models.vendor.json"
 grep -q '"supports_search_tool": true' "$CODEX_HOME/deepseek-codex-macos/models.vendor.json"
