@@ -13,6 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: bash -n deepseek-codex-macos.sh tests/test.sh tests/fixtures/fake-curl.sh tests/fixtures/fake-security.sh
+        run: bash -n deepseek-codex-macos.sh tests/test.sh tests/fixtures/fake-curl.sh tests/fixtures/fake-security.sh tests/fixtures/vendor-setup.sh
       - name: Run isolated tests
         run: ./tests/test.sh
