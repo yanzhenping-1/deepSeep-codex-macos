@@ -1,0 +1,18 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: bash -n deepseek-codex-macos.sh tests/test.sh tests/fixtures/fake-curl.sh tests/fixtures/fake-security.sh
+      - name: Run isolated tests
+        run: ./tests/test.sh
