@@ -8,14 +8,16 @@ cat > "$TMP_MODELS" <<'CODEX_MODELS_JSON'
   "models": [
     {
       "slug": "deepseek-flash",
-      "display_name": "DeepSeek Flash",
+      "input_modalities": ["text", "image"],
       "multi_agent_version": "v2",
+      "tool_mode": null,
       "supports_search_tool": true
     },
     {
       "slug": "deepseek-v4-pro",
-      "display_name": "DeepSeek V4 Pro",
+      "input_modalities": ["text"],
       "multi_agent_version": "v2",
+      "tool_mode": null,
       "supports_search_tool": true
     }
   ]

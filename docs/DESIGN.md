@@ -6,55 +6,68 @@
 
 1. CLI 日常使用不覆盖 `~/.codex/config.toml`。
 2. API Key 不写入仓库、profile 或 shell 历史。
-3. 使用 DeepSeek 原生 Responses API，不引入无必要的协议代理。
+3. 使用 DeepSeek 原生 Responses API，不引入协议代理。
 4. 配置变化可审计、可自检、可安全卸载。
-5. 桌面端限制明确，不伪装成和 CLI 一样成熟。
+5. 桌面端限制明确，不假设它与 CLI profile 能力一致。
 
-## CLI：独立 profile
+## CLI：独立 profile overlay
 
-Codex 支持在 `CODEX_HOME` 下放置 `<name>.config.toml`，并通过：
+Codex CLI 0.134.0 起支持放在 `CODEX_HOME` 下的 `<name>.config.toml`，并通过：
 
 ```bash
 codex --profile <name>
 ```
 
-加载。项目创建：
+加载。profile 是高于用户 `config.toml` 的配置层，因此只需要写入有差异的字段。
+
+本项目创建：
 
 ```text
 deepseek-flash.config.toml
 deepseek-pro.config.toml
 ```
 
-两份 profile 只覆盖模型、供应商、模型目录和供应商认证；其余配置继续继承主配置。因此 MCP、沙箱、可信目录等用户设置仍可复用，而主配置不需要被重写。
-
 三个 wrapper 负责：
 
 - `codex-openai`：直接启动原 Codex。
-- `codex-deepseek-flash`：检查 Flash profile 存在且模型匹配后加载。
-- `codex-deepseek-pro`：检查 Pro profile 存在且模型匹配后加载。
+- `codex-deepseek-flash`：校验并加载 Flash profile。
+- `codex-deepseek-pro`：校验并加载 Pro profile。
 
-profile 缺失或内容异常时 wrapper 失败关闭，而不是让 Codex 静默回退到主配置。
+Codex 对不存在的 standalone profile 会静默回退到主配置。因此 wrapper 在启动前检查文件、provider 和精确模型，失败时返回非零状态。
+
+## 强制 API 登录模式
+
+已登录 ChatGPT 的 Codex 可能优先走账号 websocket，即使配置了自定义 `model_provider`。DeepSeek 官方配置明确要求：
+
+```toml
+preferred_auth_method = "apikey"
+forced_login_method = "api"
+```
+
+这两个字段放在每个 DeepSeek profile 中，只在启动该 profile 时覆盖主配置；`codex-openai` 不受影响。
 
 ## 认证：Keychain + command-backed auth
 
-profile 只引用本地 helper：
+profile 使用：
 
 ```toml
 [model_providers.deepseek.auth]
-command = "/Users/example/.local/bin/deepseek-codex-token"
+command = "/usr/bin/security"
+args = ["find-generic-password", "-a", "...", "-s", "...", "-w"]
 timeout_ms = 5000
+refresh_interval_ms = 0
 ```
 
-helper 调用 macOS `/usr/bin/security` 从 Keychain 读取 API Key，并只把 Token 输出到标准输出。profile 和 helper 都不保存密钥。
+Codex 执行该命令并把标准输出作为 Bearer Token。profile 只保存 Keychain service/account，不保存密钥。
 
-这样不依赖 `.zshrc` 导出环境变量，也不会把密钥作为 Codex 子进程的长期环境变量。
+这也避免依赖 `.zshrc` 中的环境变量；从 Finder 或终端启动时都能读取相同凭据。
 
 ## 模型目录：运行时提取官方版本
 
-把某个时点的完整 `models.json` 固化到仓库容易过期。安装流程改为：
+将某个时点的完整 `models.json` 固化进仓库容易过期。安装流程改为：
 
 1. 下载 DeepSeek 官方配置脚本到临时文件。
-2. 校验预期 API、Responses wire、模型 slug 和 heredoc 标记。
+2. 校验 API、Responses wire、当前模型 slug 和 heredoc 标记。
 3. 记录 SHA-256。
 4. 提取 `CODEX_MODELS_JSON` heredoc。
 5. 校验 JSON 和两个目标模型。
@@ -67,7 +80,7 @@ CLI 安装不会执行下载到的官方脚本。
 
 ### Multi-agent V2 → V1
 
-非 OpenAI Responses 供应商当前无法消费 Codex Multi-agent V2 的 OpenAI 特有 `encrypted_content` 任务载荷。结果是子代理创建成功，但收到空任务。
+Codex Multi-agent V2 目前会把第三方 provider 的子代理任务正文放入 OpenAI 特有的 `encrypted_content`。DeepSeek Responses API 无法消费该内容，子代理会收到空任务。
 
 兼容目录把：
 
@@ -81,40 +94,47 @@ CLI 安装不会执行下载到的官方脚本。
 "multi_agent_version": "v1"
 ```
 
-V1 使用普通用户输入传递任务，可避免该兼容问题。
+V1 使用普通用户输入传递任务。
 
 ### `supports_search_tool` → false
 
-DeepSeek 官方目录当前会把 `supports_search_tool` 设为 true，同时 `tool_mode` 不是可用的工具发现路径。Codex 因此会把 MCP 工具标记为 Deferred，却没有向模型暴露可用 `tool_search`，导致 MCP 工具静默不可见。
+DeepSeek 官方目录当前组合为：
 
-兼容目录把该字段改为 false，使 MCP 工具直接进入模型可见工具列表。该字段不控制 DeepSeek 托管 web search 本身。
+```json
+"supports_search_tool": true,
+"tool_mode": null
+```
+
+在现行 Codex 中，这可能让 MCP 工具被标记为 Deferred，同时没有把 `tool_search` 暴露给模型，最终所有 `mcp__*` 工具都不可见。
+
+兼容目录把 `supports_search_tool` 改为 `false`，让 MCP 工具直接出现在模型可见工具列表。该字段不控制 DeepSeek 托管 web search；项目另外将 Codex 内置 `web_search` 设为 `disabled`。
 
 ## 桌面端
 
-Codex Desktop 当前没有完整的供应商选择器，也不能像 CLI 一样自然使用 `--profile`。`model_catalog_json` 又是替换整份目录而非追加。
+Codex Desktop 当前无法在启动时选择 standalone profile，而且自定义目录会替换内置模型目录而不是合并。
 
-因此桌面端不由本项目自行模拟切换器，而是调用 DeepSeek 官方配置器，复用其：
+因此桌面端不由项目自行模拟切换器，而是调用 DeepSeek 官方配置器，复用其：
 
 - 原配置备份；
-- TOML 清理和写入；
+- TOML 冲突字段清理；
 - 模型目录生成；
 - 恢复默认配置。
 
-本项目只在执行前做结构校验与 SHA-256 展示，并在官方脚本结束后应用同样的模型目录兼容补丁。
+项目只在执行前做结构校验与 SHA-256 展示，并在官方脚本结束后对 `models.json` 应用相同的兼容补丁。
 
 ## 写入与删除安全
 
-- 文件通过同目录临时文件 + `mv` 原子替换。
-- 覆盖非本项目管理的同名文件前先创建时间戳备份。
-- 管理目录必须以 `deepseek-codex-macos` 结尾。
+- 文件通过同目录临时文件加 `mv` 原子替换。
+- 覆盖非项目管理的同名 profile/wrapper 前先创建时间戳备份。
+- 管理目录必须以 `deepseek-codex-macos` 结尾，且不能是符号链接。
 - 管理目录内写入所有权 sentinel。
-- 卸载只删除带管理标记的 profile/helper/wrapper；递归删除管理目录前必须校验 sentinel。
+- 卸载只删除带管理标记的 profile/wrapper；递归删除管理目录前必须校验 sentinel。
 - `~/.codex/config.toml`、聊天数据库和 sessions 目录不在 CLI 卸载范围。
 
 ## 明确不做的事
 
 - 不运行 Chat Completions → Responses 本地转换代理。
-- 不修改、注入或重新签名 Codex / ChatGPT 应用包。
-- 不直接编辑 `state_*.sqlite` 或 rollout JSONL 来伪造模型/迁移聊天。
-- 不把 OpenAI 与 DeepSeek 模型硬拼进同一个替换型桌面目录。
+- 不修改、注入或重新签名 Codex/ChatGPT 应用包。
+- 不直接编辑 `state_*.sqlite` 或 rollout JSONL 来伪造模型、迁移聊天。
+- 不把 OpenAI 与 DeepSeek 模型硬拼进一个替换型桌面目录。
 - 不提交 API Key、真实用户配置或备份文件。

@@ -21,7 +21,7 @@ case "$action" in
     cat "$store"
     ;;
   delete-generic-password)
-    rm -f "$store"
+    rm -f -- "$store"
     ;;
   *)
     printf 'unsupported fake security action: %s\n' "$action" >&2

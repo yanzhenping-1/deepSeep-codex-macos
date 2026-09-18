@@ -20,7 +20,6 @@ CATALOG_VENDOR="$MANAGED_DIR/models.vendor.json"
 CATALOG_COMPAT="$MANAGED_DIR/models.compat.json"
 VENDOR_HASH_FILE="$MANAGED_DIR/vendor-script.sha256"
 MANAGED_SENTINEL="$MANAGED_DIR/.managed-by-$PROGRAM_NAME"
-TOKEN_HELPER="$BIN_DIR/deepseek-codex-token"
 WRAPPER_FLASH="$BIN_DIR/codex-deepseek-flash"
 WRAPPER_PRO="$BIN_DIR/codex-deepseek-pro"
 WRAPPER_OPENAI="$BIN_DIR/codex-openai"
@@ -49,7 +48,7 @@ die() { printf '✗ %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'USAGE'
-DeepSeek for Codex on macOS — isolated CLI profiles and an official Desktop switcher
+DeepSeek for Codex on macOS — isolated CLI profiles plus an official Desktop switcher
 
 Usage:
   ./deepseek-codex-macos.sh install
@@ -92,6 +91,7 @@ validate_paths() {
   esac
   [ "$(basename "$MANAGED_DIR")" = "$PROGRAM_NAME" ] || \
     die "Managed directory must end with /$PROGRAM_NAME: $MANAGED_DIR"
+  [ ! -L "$MANAGED_DIR" ] || die "Managed directory must not be a symlink: $MANAGED_DIR"
   case "$BIN_DIR" in
     ""|/) die "Unsafe bin directory: $BIN_DIR" ;;
   esac
@@ -225,12 +225,14 @@ make_compat_catalog() {
   local temp
   make_temp_dir
   temp="$TEMP_DIR/models.compat.json"
-  cp "$source" "$temp"
 
-  # Current upstream workarounds for custom Responses providers:
-  # - V2 subagent payloads arrive as OpenAI-only encrypted_content.
-  # - supports_search_tool=true can defer MCP tools without exposing tool_search.
-  perl -0pi -e 's/("multi_agent_version"\s*:\s*)"v2"/${1}"v1"/g; s/("supports_search_tool"\s*:\s*)true/${1}false/g' "$temp"
+  # Current upstream workarounds for non-OpenAI Responses providers:
+  # - V2 subagent payloads can arrive as OpenAI-only encrypted_content.
+  # - supports_search_tool=true + tool_mode=null can hide MCP tools without tool_search.
+  sed -E \
+    -e 's/("multi_agent_version"[[:space:]]*:[[:space:]]*)"v2"/\1"v1"/g' \
+    -e 's/("supports_search_tool"[[:space:]]*:[[:space:]]*)true/\1false/g' \
+    "$source" > "$temp"
 
   json_validate "$temp" || die "Compatibility catalog is invalid after patching."
   atomic_install_file "$temp" "$destination" 600
@@ -268,36 +270,24 @@ obtain_api_key() {
   ok "API key stored in macOS Keychain"
 }
 
-write_token_helper() {
-  local temp security_q account_q service_q
-  make_temp_dir
-  temp="$TEMP_DIR/deepseek-codex-token"
-  security_q="$(shell_single_quote "$SECURITY_BIN")"
-  account_q="$(shell_single_quote "$KEYCHAIN_ACCOUNT")"
-  service_q="$(shell_single_quote "$KEYCHAIN_SERVICE")"
-  cat > "$temp" <<EOF_HELPER
-#!/usr/bin/env bash
-# Managed by $PROGRAM_NAME $PROGRAM_VERSION.
-set -euo pipefail
-exec $security_q find-generic-password -a $account_q -s $service_q -w
-EOF_HELPER
-  backup_if_unmanaged "$TOKEN_HELPER"
-  atomic_install_file "$temp" "$TOKEN_HELPER" 700
-}
-
 write_profile() {
   local model="$1" destination="$2"
-  local temp catalog_e helper_e
+  local temp catalog_e security_e account_e service_e
   make_temp_dir
   temp="$TEMP_DIR/$(basename "$destination")"
   catalog_e="$(toml_escape "$CATALOG_COMPAT")"
-  helper_e="$(toml_escape "$TOKEN_HELPER")"
+  security_e="$(toml_escape "$SECURITY_BIN")"
+  account_e="$(toml_escape "$KEYCHAIN_ACCOUNT")"
+  service_e="$(toml_escape "$KEYCHAIN_SERVICE")"
 
   cat > "$temp" <<EOF_PROFILE
 # Managed by $PROGRAM_NAME $PROGRAM_VERSION.
 model = "$model"
 model_provider = "deepseek"
+preferred_auth_method = "apikey"
+forced_login_method = "api"
 model_reasoning_effort = "high"
+web_search = "disabled"
 model_catalog_json = "$catalog_e"
 
 [model_providers.deepseek]
@@ -307,8 +297,10 @@ wire_api = "responses"
 supports_websockets = false
 
 [model_providers.deepseek.auth]
-command = "$helper_e"
+command = "$security_e"
+args = ["find-generic-password", "-a", "$account_e", "-s", "$service_e", "-w"]
 timeout_ms = 5000
+refresh_interval_ms = 0
 EOF_PROFILE
 
   backup_if_unmanaged "$destination"
@@ -364,6 +356,9 @@ profile_check() {
   [ -f "$profile" ] || return 1
   grep -Fqx "model = \"$expected_model\"" "$profile" || return 1
   grep -Fqx 'model_provider = "deepseek"' "$profile" || return 1
+  grep -Fqx 'preferred_auth_method = "apikey"' "$profile" || return 1
+  grep -Fqx 'forced_login_method = "api"' "$profile" || return 1
+  grep -Fqx 'web_search = "disabled"' "$profile" || return 1
   grep -Fqx 'wire_api = "responses"' "$profile" || return 1
   grep -Fqx '[model_providers.deepseek.auth]' "$profile" || return 1
 }
@@ -377,11 +372,11 @@ install_profiles() {
   require_command "$SHASUM_BIN"
   require_command awk
   require_command sed
-  require_command perl
   require_codex_version
 
   mkdir -p "$CODEX_DIR" "$BIN_DIR"
   prepare_managed_dir
+  obtain_api_key
 
   make_temp_dir
   local vendor_script extracted
@@ -392,8 +387,6 @@ install_profiles() {
   atomic_install_file "$extracted" "$CATALOG_VENDOR" 600
   make_compat_catalog "$CATALOG_VENDOR" "$CATALOG_COMPAT"
 
-  obtain_api_key
-  write_token_helper
   write_profile "deepseek-flash" "$PROFILE_FLASH"
   write_profile "deepseek-v4-pro" "$PROFILE_PRO"
   write_wrapper "$WRAPPER_FLASH" "deepseek-flash" "$PROFILE_FLASH" "deepseek-flash"
@@ -434,7 +427,6 @@ run_codex() {
 }
 
 repair_catalog() {
-  require_command perl
   local path="${1:-$CODEX_DIR/models.json}"
   [ -f "$path" ] || die "Catalog not found: $path"
   json_validate "$path" || die "Catalog is not valid JSON: $path"
@@ -444,9 +436,7 @@ repair_catalog() {
   cp -p "$path" "$backup"
   make_temp_dir
   temp="$TEMP_DIR/repaired-models.json"
-  cp "$path" "$temp"
-  perl -0pi -e 's/("multi_agent_version"\s*:\s*)"v2"/${1}"v1"/g; s/("supports_search_tool"\s*:\s*)true/${1}false/g' "$temp"
-  json_validate "$temp" || die "Catalog repair produced invalid JSON; original is untouched."
+  make_compat_catalog "$path" "$temp"
   atomic_install_file "$temp" "$path" 600
   ok "Catalog compatibility fixes applied"
   info "Backup: $backup"
@@ -480,16 +470,20 @@ run_desktop_setup() {
 
 api_smoke_test() {
   keychain_has_key || die "No DeepSeek key is stored in Keychain. Run install first."
-  local key response_file code
+  local key response_file code curl_config
   key="$(read_keychain_key)"
   make_temp_dir
   response_file="$TEMP_DIR/api-response.json"
-  code="$("$CURL_BIN" -sS -o "$response_file" -w '%{http_code}' \
+  curl_config="$TEMP_DIR/curl.conf"
+  printf 'header = "Authorization: Bearer %s"\n' "$key" > "$curl_config"
+  chmod 600 "$curl_config"
+  unset key
+
+  code="$("$CURL_BIN" --config "$curl_config" -sS -o "$response_file" -w '%{http_code}' \
     -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer $key" \
     -d '{"model":"deepseek-flash","input":"Reply with OK only.","max_output_tokens":16}' \
     'https://api.deepseek.com/responses')"
-  unset key
+
   if [ "$code" != "200" ]; then
     warn "DeepSeek API smoke test returned HTTP $code"
     if [ -s "$response_file" ]; then
@@ -503,6 +497,7 @@ api_smoke_test() {
 doctor() {
   require_macos
   validate_paths
+  require_command "$SECURITY_BIN"
   local failures=0 api=0 current=""
   [ "${1:-}" = "--api" ] && api=1
 
@@ -526,7 +521,7 @@ doctor() {
   if [ -f "$CATALOG_COMPAT" ] && json_validate "$CATALOG_COMPAT"; then ok "Compatibility model catalog is valid"; else warn "Compatibility catalog missing or invalid"; failures=$((failures+1)); fi
   if profile_check "$PROFILE_FLASH" "deepseek-flash"; then ok "Flash profile is valid"; else warn "Flash profile missing or invalid"; failures=$((failures+1)); fi
   if profile_check "$PROFILE_PRO" "deepseek-v4-pro"; then ok "Pro profile is valid"; else warn "Pro profile missing or invalid"; failures=$((failures+1)); fi
-  if [ -x "$TOKEN_HELPER" ] && [ -x "$WRAPPER_FLASH" ] && [ -x "$WRAPPER_PRO" ] && [ -x "$WRAPPER_OPENAI" ]; then ok "Token helper and wrappers are installed"; else warn "One or more executable helpers are missing"; failures=$((failures+1)); fi
+  if [ -x "$WRAPPER_FLASH" ] && [ -x "$WRAPPER_PRO" ] && [ -x "$WRAPPER_OPENAI" ]; then ok "Command wrappers are installed"; else warn "One or more wrappers are missing"; failures=$((failures+1)); fi
 
   if [ -f "$CATALOG_COMPAT" ]; then
     if grep -q '"multi_agent_version"[[:space:]]*:[[:space:]]*"v2"' "$CATALOG_COMPAT"; then
@@ -575,7 +570,6 @@ uninstall_profiles() {
 
   remove_if_managed "$PROFILE_FLASH"
   remove_if_managed "$PROFILE_PRO"
-  remove_if_managed "$TOKEN_HELPER"
   remove_if_managed "$WRAPPER_FLASH"
   remove_if_managed "$WRAPPER_PRO"
   remove_if_managed "$WRAPPER_OPENAI"

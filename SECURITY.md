@@ -11,15 +11,17 @@
 
 ## CLI 凭据处理
 
-推荐安装把 DeepSeek API Key 保存到 macOS Keychain。profile 通过 Codex command-backed auth 调用本地 helper，helper 再调用 `/usr/bin/security` 读取密钥。
+推荐安装把 DeepSeek API Key 保存到 macOS Keychain。profile 通过 Codex command-backed auth 调用 `/usr/bin/security` 读取密钥，只保存 Keychain service/account 元数据。
 
 密钥不会写入：
 
 - 仓库
 - profile
-- wrapper/helper
+- wrapper
 - Codex 命令行参数
 - shell 历史
+
+`install` 调用 macOS `security add-generic-password` 时，密钥会短暂存在于该本机进程的参数内存中；脚本随后不会保留副本。
 
 ## 桌面端风险
 
