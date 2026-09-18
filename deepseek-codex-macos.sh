@@ -281,7 +281,10 @@ write_profile() {
 # Managed by $PROGRAM_NAME $PROGRAM_VERSION.
 model = "$model"
 model_provider = "deepseek"
+preferred_auth_method = "apikey"
+forced_login_method = "api"
 model_reasoning_effort = "high"
+web_search = "disabled"
 model_catalog_json = "$catalog_e"
 
 [model_providers.deepseek]

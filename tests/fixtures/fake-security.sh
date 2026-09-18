@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 store="${FAKE_KEYCHAIN_FILE:?FAKE_KEYCHAIN_FILE is required}"
 action="${1:-}"
 shift || true
+
 case "$action" in
   add-generic-password)
     value=""
